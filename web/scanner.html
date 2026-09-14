@@ -373,7 +373,7 @@ async function startCamera() {
     cameras.forEach(function (camera) {
       const option = document.createElement('option');
       option.value = camera.id;
-      option.textContent = camera.label || camera.id;
+      option.textContent = describeCameraLabel(camera.label) || camera.id;
       cameraSelect.appendChild(option);
     });
     cameraSelect.hidden = false;
@@ -384,7 +384,35 @@ async function startCamera() {
     cameraSelect.hidden = true;
   }
 
-  await restartCamera(cameras[0].id);
+  // За замовчуванням просимо в браузера тильну камеру — зручніше показувати
+  // картку студенту, поки викладач дивиться на екран, і надійніше, ніж
+  // угадувати індекс у списку пристроїв (він різний на різних телефонах).
+  html5QrCode = new Html5Qrcode('reader');
+  try {
+    await html5QrCode.start(
+      { facingMode: { ideal: 'environment' } },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onDecoded,
+      function () { /* код не знайдено в кадрі — це нормальний стан кожного кадру */ }
+    );
+  } catch (err) {
+    // Браузер не підтримує вибір за facingMode (рідко) — беремо перший пристрій зі списку.
+    await restartCamera(cameras[0].id);
+  }
+}
+
+// Підписи камер у getCameras() — сирі назви драйвера (напр. "camera2 0, facing back").
+// Перекладаємо впізнавані слова на "Тильна"/"Фронтальна", щоб перемикач був зрозумілий.
+function describeCameraLabel(label) {
+  if (!label) return '';
+  const lower = label.toLowerCase();
+  if (lower.indexOf('front') !== -1 || lower.indexOf('user') !== -1 || lower.indexOf('selfie') !== -1) {
+    return 'Фронтальна (' + label + ')';
+  }
+  if (lower.indexOf('back') !== -1 || lower.indexOf('rear') !== -1 || lower.indexOf('environment') !== -1) {
+    return 'Тильна (' + label + ')';
+  }
+  return label;
 }
 
 async function restartCamera(cameraId) {
