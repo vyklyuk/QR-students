@@ -20,6 +20,10 @@ function doPost(e) {
         return jsonResponse(handleRoster(request));
       case 'manual':
         return jsonResponse(handleManual(request));
+      case 'groups':
+        return jsonResponse(handleGroups(request));
+      case 'cards':
+        return jsonResponse(handleCards(request));
       default:
         return jsonResponse({ status: 'error', message: 'Невідома дія: ' + request.action });
     }
@@ -138,4 +142,42 @@ function handleManual(request) {
     group: group,
     presentCount: result.presentCount
   };
+}
+
+// action: "groups" — перелік груп для випадаючого списку на сторінці генератора карток.
+function handleGroups(request) {
+  return { status: 'ok', groups: getConfiguredGroups() };
+}
+
+// action: "cards" — вхід {group}. Підписаний payload для кожного студента групи —
+// секрет лишається на бекенді, у браузер іде вже готовий рядок для QR-коду.
+function handleCards(request) {
+  var group = request.group;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(group);
+  if (!sheet) {
+    return { status: 'error', message: 'Групу не знайдено: ' + group };
+  }
+
+  var secret = getHmacSecret();
+  var lastRow = sheet.getLastRow();
+  var students = [];
+
+  if (lastRow >= 2) {
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    data.forEach(function (row) {
+      var number = row[0];
+      var name = row[1];
+      if (!name) {
+        return;
+      }
+      students.push({
+        number: number,
+        name: name,
+        payload: buildSignedPayload(group, String(number), secret)
+      });
+    });
+  }
+
+  return { status: 'ok', group: group, students: students };
 }

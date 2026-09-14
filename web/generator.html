@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR-відмітка — генератор карток</title>
+<script src="https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --color-bg: #12161c;
+    --color-panel: #1b212b;
+    --color-text: #e8ecf1;
+    --color-muted: #8a93a3;
+    --color-accent: #3b82f6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+
+  #toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--color-panel);
+  }
+
+  #toolbar select {
+    padding: 8px 10px;
+    font-size: 15px;
+    background: #0f1319;
+    color: var(--color-text);
+    border: 1px solid #2a3140;
+    border-radius: 8px;
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    padding: 10px 16px;
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  #status-line {
+    color: var(--color-muted);
+    font-size: 14px;
+  }
+
+  #sheets {
+    padding: 16px;
+  }
+
+  .sheet-page {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 0.4cm;
+    width: 19cm;
+    height: 27.4cm;
+    margin: 0 auto 24px;
+    background: #fff;
+  }
+
+  .card {
+    border: 1px dashed #999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3cm;
+    overflow: hidden;
+  }
+
+  .card canvas, .card img {
+    width: 5.5cm;
+    height: 5.5cm;
+  }
+
+  .card-caption {
+    margin-top: 0.2cm;
+    text-align: center;
+    color: #000;
+  }
+
+  .card-name {
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .card-group {
+    font-size: 11px;
+    color: #555;
+  }
+
+  [hidden] { display: none !important; }
+
+  @media print {
+    #toolbar { display: none; }
+    body { background: #fff; }
+    .sheet-page {
+      margin: 0;
+      page-break-after: always;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <select id="group-select">
+    <option value="">Завантаження груп…</option>
+  </select>
+  <button id="generate-button" disabled>Згенерувати картки</button>
+  <button id="print-button" hidden>Друкувати</button>
+  <span id="status-line"></span>
+</div>
+
+<div id="sheets"></div>
+
+<script src="config.local.js"></script>
+<script>
+'use strict';
+
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 800;
+const CARDS_PER_SHEET = 8;
+
+const groupSelect = document.getElementById('group-select');
+const generateButton = document.getElementById('generate-button');
+const printButton = document.getElementById('print-button');
+const statusLine = document.getElementById('status-line');
+const sheetsEl = document.getElementById('sheets');
+
+generateButton.addEventListener('click', onGenerateClicked);
+printButton.addEventListener('click', function () { window.print(); });
+
+loadGroups();
+
+async function loadGroups() {
+  if (typeof APPS_SCRIPT_URL === 'undefined') {
+    statusLine.textContent = 'Не знайдено config.local.js з APPS_SCRIPT_URL (див. SETUP.md).';
+    return;
+  }
+
+  try {
+    const response = await callBackendWithRetry({ action: 'groups' });
+    if (response.status !== 'ok' || response.groups.length === 0) {
+      statusLine.textContent = response.message || 'У "Налаштуваннях" не вказано жодної групи.';
+      return;
+    }
+
+    groupSelect.innerHTML = '';
+    response.groups.forEach(function (group) {
+      const option = document.createElement('option');
+      option.value = group;
+      option.textContent = group;
+      groupSelect.appendChild(option);
+    });
+    generateButton.disabled = false;
+  } catch (err) {
+    statusLine.textContent = 'Немає зв’язку з бекендом: ' + err.message;
+  }
+}
+
+async function onGenerateClicked() {
+  const group = groupSelect.value;
+  if (!group) return;
+
+  generateButton.disabled = true;
+  printButton.hidden = true;
+  sheetsEl.innerHTML = '';
+  statusLine.textContent = 'Завантажую список і підписи від бекенда…';
+
+  try {
+    const response = await callBackendWithRetry({ action: 'cards', group: group });
+    if (response.status !== 'ok') {
+      statusLine.textContent = response.message || 'Не вдалося отримати картки.';
+      return;
+    }
+    if (response.students.length === 0) {
+      statusLine.textContent = 'У групі "' + group + '" немає студентів.';
+      return;
+    }
+
+    renderSheets(response.students, group);
+    statusLine.textContent = 'Готово: ' + response.students.length + ' карток, ' +
+      Math.ceil(response.students.length / CARDS_PER_SHEET) + ' аркуш(ів) A4.';
+    printButton.hidden = false;
+  } catch (err) {
+    statusLine.textContent = 'Немає зв’язку з бекендом: ' + err.message;
+  } finally {
+    generateButton.disabled = false;
+  }
+}
+
+function renderSheets(students, group) {
+  for (let i = 0; i < students.length; i += CARDS_PER_SHEET) {
+    const page = document.createElement('div');
+    page.className = 'sheet-page';
+    students.slice(i, i + CARDS_PER_SHEET).forEach(function (student) {
+      page.appendChild(buildCard(student, group));
+    });
+    sheetsEl.appendChild(page);
+  }
+}
+
+function buildCard(student, group) {
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const qrHolder = document.createElement('div');
+  card.appendChild(qrHolder);
+  // eslint-disable-next-line no-new
+  new QRCode(qrHolder, {
+    text: student.payload,
+    width: 220,
+    height: 220,
+    correctLevel: QRCode.CorrectLevel.M
+  });
+
+  const caption = document.createElement('div');
+  caption.className = 'card-caption';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'card-name';
+  nameEl.textContent = student.name;
+  caption.appendChild(nameEl);
+
+  const groupEl = document.createElement('div');
+  groupEl.className = 'card-group';
+  groupEl.textContent = group;
+  caption.appendChild(groupEl);
+
+  card.appendChild(caption);
+  return card;
+}
+
+// ---------- Звернення до бекенда ----------
+// Content-Type: text/plain — щоб fetch лишався "простим" запитом і не викликав
+// CORS-preflight, який Apps Script не обробляє (CLAUDE.md, правило 3).
+
+async function callBackend(body) {
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body)
+  });
+  return response.json();
+}
+
+function sleep(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+async function callBackendWithRetry(body) {
+  let lastError;
+  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await callBackend(body);
+    } catch (err) {
+      lastError = err;
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
+}
+</script>
+</body>
+</html>
