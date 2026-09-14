@@ -156,6 +156,7 @@ function logRandomStudentCodes(count) {
   count = count || 5;
   var secret = getHmacSecret();
   var groups = getConfiguredGroups();
+  Logger.log('Групи з першого рядка "Налаштувань": [' + groups.join(', ') + ']');
   if (groups.length === 0) {
     Logger.log('У вкладці "Налаштування" не вказано жодної групи в першому рядку.');
     return;
@@ -163,21 +164,33 @@ function logRandomStudentCodes(count) {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var allStudents = [];
+  var diagnostics = [];
 
   groups.forEach(function (group) {
     var sheet = ss.getSheetByName(group);
-    if (!sheet) return;
+    if (!sheet) {
+      diagnostics.push('"' + group + '" — вкладку з такою назвою не знайдено (перевір, чи збігається символ у символ, без зайвих пробілів)');
+      return;
+    }
     var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return;
+    if (lastRow < 2) {
+      diagnostics.push('"' + group + '" — вкладка є, але рядків зі студентами немає (lastRow=' + lastRow + ')');
+      return;
+    }
     var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var countInGroup = 0;
     data.forEach(function (row) {
       var number = row[0];
       var name = row[1];
       if (name) {
         allStudents.push({ group: group, number: number, name: name });
+        countInGroup++;
       }
     });
+    diagnostics.push('"' + group + '" — знайдено ' + countInGroup + ' студент(ів) із заповненим прізвищем (колонка B)');
   });
+
+  Logger.log(diagnostics.join('\n'));
 
   if (allStudents.length === 0) {
     Logger.log('У жодній із перелічених груп немає студентів.');
