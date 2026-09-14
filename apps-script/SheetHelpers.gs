@@ -1,14 +1,15 @@
 // Доступ до вкладок Google Таблиці: пошук студента, робота з "Відвідуваність" і "Лог".
 
-// Перший рядок вкладки "Налаштування" містить перелік шифрів груп (кожен —
-// у своїй колонці); кожен шифр відповідає назві вкладки зі списком студентів.
+// Перший рядок вкладки "Налаштування" містить перелік шифрів груп, кожен —
+// у своїй колонці, починаючи з колонки B (колонка A — службова, напр. підпис
+// "Групи"); кожен шифр відповідає назві вкладки зі списком студентів.
 function getConfiguredGroups() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(SHEET_SETTINGS);
-  if (!sheet || sheet.getLastColumn() < 1) {
+  if (!sheet || sheet.getLastColumn() < 2) {
     return [];
   }
-  var row = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var row = sheet.getRange(1, 2, 1, sheet.getLastColumn() - 1).getValues()[0];
   return row
     .map(function (value) { return String(value).trim(); })
     .filter(function (value) { return value.length > 0; });
