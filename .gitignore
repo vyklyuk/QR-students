@@ -1,0 +1,6 @@
+# Секрети та конфігурація з реальним URL веб-застосунку
+key.txt
+web/config.local.js
+
+# macOS
+.DS_Store
