@@ -67,48 +67,51 @@
     margin: 1cm;
   }
 
+  /* Навмисно без CSS Grid і без фіксованої висоти аркуша: розмір рядка,
+     порахований наперед, у різних браузерах під час друку рахувався
+     по-різному й обрізав картку (canvas + підпис не влазили в клітинку
+     grid-track). Flexbox з natural-висотою картки застрахований від цього. */
   .sheet-page {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: repeat(4, 1fr);
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
     gap: 0.3cm;
     width: 19cm;
-    height: 27.2cm;
     margin: 0 auto 24px;
     background: #fff;
   }
 
   .card {
+    width: 9.3cm;
     border: 1px dashed #999;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 0.15cm;
-    overflow: hidden;
+    padding: 0.3cm 0.2cm;
   }
 
   /* QR-код рівно 5 см — це мінімум, за яким камера ще впевнено читає код
-     (ROADMAP.md, Етап 4). Решта клітинки — підпис і відступи. */
+     (ROADMAP.md, Етап 4). */
   .card canvas {
+    display: block;
     width: 5cm;
     height: 5cm;
   }
 
   .card-caption {
-    margin-top: 0.1cm;
+    margin-top: 0.15cm;
     text-align: center;
     color: #000;
   }
 
   .card-name {
     font-weight: 700;
-    font-size: 11px;
-    line-height: 1.15;
+    font-size: 13px;
+    line-height: 1.2;
   }
 
   .card-group {
-    font-size: 9px;
+    font-size: 11px;
     color: #555;
   }
 
@@ -117,8 +120,14 @@
   @media print {
     #toolbar { display: none; }
     body { background: #fff; }
+    .card {
+      break-inside: avoid;
+    }
+    /* :not(:last-child) — інакше після останнього аркуша друкується зайва порожня сторінка. */
     .sheet-page {
       margin: 0;
+    }
+    .sheet-page:not(:last-child) {
       page-break-after: always;
     }
   }
@@ -313,10 +322,20 @@ async function buildCard(student) {
 
   const canvas = document.createElement('canvas');
   card.appendChild(canvas);
-  // Бібліотека qrcode (soldair/node-qrcode) сама підбирає версію QR-коду
-  // під довжину тексту — на відміну від qrcodejs, не падає на кириличних
-  // назвах груп ("code length overflow").
-  await QRCode.toCanvas(canvas, student.payload, { width: 600, margin: 1, errorCorrectionLevel: 'M' });
+  try {
+    // Бібліотека qrcode (soldair/node-qrcode) сама підбирає версію QR-коду
+    // під довжину тексту — на відміну від qrcodejs, не падає на кириличних
+    // назвах груп ("code length overflow").
+    await QRCode.toCanvas(canvas, student.payload, { width: 600, margin: 1, errorCorrectionLevel: 'M' });
+  } catch (err) {
+    // Не рвемо всю партію через один код — показуємо помилку прямо на картці.
+    canvas.remove();
+    const errorEl = document.createElement('div');
+    errorEl.textContent = 'Помилка QR: ' + err.message;
+    errorEl.style.color = '#c00';
+    errorEl.style.fontSize = '10px';
+    card.appendChild(errorEl);
+  }
 
   const caption = document.createElement('div');
   caption.className = 'card-caption';
