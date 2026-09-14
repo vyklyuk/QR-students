@@ -145,3 +145,62 @@ function logTestCodes(group) {
 
   Logger.log(lines.join('\n'));
 }
+
+// Те саме, що logTestCodes(), але бере студентів не з вигаданої тестової
+// вкладки, а випадково з реальних груп, перелічених у першому рядку
+// "Налаштувань" (getConfiguredGroups() з SheetHelpers.gs). Зручно, коли
+// хочеш прогнати сканер на живих номерах/групах, а генератора карток
+// (Етап 4) ще немає. Виводить прізвища лише в приватний Журнал виконання
+// Apps Script — ці дані не потрапляють у репозиторій.
+function logRandomStudentCodes(count) {
+  count = count || 5;
+  var secret = getHmacSecret();
+  var groups = getConfiguredGroups();
+  if (groups.length === 0) {
+    Logger.log('У вкладці "Налаштування" не вказано жодної групи в першому рядку.');
+    return;
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var allStudents = [];
+
+  groups.forEach(function (group) {
+    var sheet = ss.getSheetByName(group);
+    if (!sheet) return;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    data.forEach(function (row) {
+      var number = row[0];
+      var name = row[1];
+      if (name) {
+        allStudents.push({ group: group, number: number, name: name });
+      }
+    });
+  });
+
+  if (allStudents.length === 0) {
+    Logger.log('У жодній із перелічених груп немає студентів.');
+    return;
+  }
+
+  var picked = pickRandom(allStudents, Math.min(count, allStudents.length));
+  var lines = picked.map(function (student) {
+    var payload = buildSignedPayload(student.group, String(student.number), secret);
+    return student.name + ' (' + student.group + ', №' + student.number + '): ' + payload;
+  });
+
+  Logger.log(lines.join('\n'));
+}
+
+// Перетасовка Фішера-Єйтса — повертає n випадкових елементів масиву без повторів.
+function pickRandom(array, n) {
+  var copy = array.slice();
+  for (var i = copy.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = tmp;
+  }
+  return copy.slice(0, n);
+}
