@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QR-відмітка — генератор карток</title>
-<script src="https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
 <style>
   :root {
     --color-bg: #12161c;
@@ -83,7 +83,7 @@
     overflow: hidden;
   }
 
-  .card canvas, .card img {
+  .card canvas {
     width: 5.5cm;
     height: 5.5cm;
   }
@@ -123,6 +123,9 @@
   <select id="group-select">
     <option value="">Завантаження груп…</option>
   </select>
+  <select id="student-select" disabled>
+    <option value="__all__">— Усі студенти групи —</option>
+  </select>
   <button id="generate-button" disabled>Згенерувати картки</button>
   <button id="print-button" hidden>Друкувати</button>
   <span id="status-line"></span>
@@ -134,16 +137,26 @@
 <script>
 'use strict';
 
+const ALL_GROUPS_VALUE = '__all__';
+const ALL_STUDENTS_VALUE = '__all__';
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 800;
 const CARDS_PER_SHEET = 8;
 
 const groupSelect = document.getElementById('group-select');
+const studentSelect = document.getElementById('student-select');
 const generateButton = document.getElementById('generate-button');
 const printButton = document.getElementById('print-button');
 const statusLine = document.getElementById('status-line');
 const sheetsEl = document.getElementById('sheets');
 
+let allGroups = [];
+// Кеш останнього завантаженого списку студентів однієї групи — щоб не тягнути
+// його з бекенда двічі (один раз для заповнення <select>, другий — при генерації).
+let cachedGroup = null;
+let cachedGroupStudents = null;
+
+groupSelect.addEventListener('change', onGroupChanged);
 generateButton.addEventListener('click', onGenerateClicked);
 printButton.addEventListener('click', function () { window.print(); });
 
@@ -162,42 +175,110 @@ async function loadGroups() {
       return;
     }
 
+    allGroups = response.groups;
     groupSelect.innerHTML = '';
-    response.groups.forEach(function (group) {
+
+    const allOption = document.createElement('option');
+    allOption.value = ALL_GROUPS_VALUE;
+    allOption.textContent = '— Усі групи —';
+    groupSelect.appendChild(allOption);
+
+    allGroups.forEach(function (group) {
       const option = document.createElement('option');
       option.value = group;
       option.textContent = group;
       groupSelect.appendChild(option);
     });
+
     generateButton.disabled = false;
   } catch (err) {
     statusLine.textContent = 'Немає зв’язку з бекендом: ' + err.message;
   }
 }
 
+// При виборі конкретної групи одразу підтягуємо її студентів — і щоб заповнити
+// список для вибору одного студента, і про запас для самої генерації.
+async function onGroupChanged() {
+  const group = groupSelect.value;
+  studentSelect.innerHTML = '<option value="' + ALL_STUDENTS_VALUE + '">— Усі студенти групи —</option>';
+  studentSelect.disabled = true;
+  cachedGroup = null;
+  cachedGroupStudents = null;
+
+  if (group === ALL_GROUPS_VALUE) {
+    return;
+  }
+
+  statusLine.textContent = 'Завантажую список студентів…';
+  try {
+    const students = await fetchGroupStudents(group);
+    students.forEach(function (student) {
+      const option = document.createElement('option');
+      option.value = String(student.number);
+      option.textContent = student.name;
+      studentSelect.appendChild(option);
+    });
+    studentSelect.disabled = false;
+    statusLine.textContent = '';
+  } catch (err) {
+    statusLine.textContent = 'Немає зв’язку з бекендом: ' + err.message;
+  }
+}
+
+async function fetchGroupStudents(group) {
+  if (cachedGroup === group && cachedGroupStudents) {
+    return cachedGroupStudents;
+  }
+  const response = await callBackendWithRetry({ action: 'cards', group: group });
+  if (response.status !== 'ok') {
+    throw new Error(response.message || 'Не вдалося отримати список групи ' + group);
+  }
+  cachedGroup = group;
+  cachedGroupStudents = response.students;
+  return response.students;
+}
+
 async function onGenerateClicked() {
   const group = groupSelect.value;
-  if (!group) return;
+  const studentNumber = studentSelect.value;
 
   generateButton.disabled = true;
   printButton.hidden = true;
   sheetsEl.innerHTML = '';
-  statusLine.textContent = 'Завантажую список і підписи від бекенда…';
+  statusLine.textContent = 'Завантажую підписи від бекенда…';
 
   try {
-    const response = await callBackendWithRetry({ action: 'cards', group: group });
-    if (response.status !== 'ok') {
-      statusLine.textContent = response.message || 'Не вдалося отримати картки.';
-      return;
+    let cards;
+
+    if (group === ALL_GROUPS_VALUE) {
+      cards = [];
+      for (const g of allGroups) {
+        const students = await fetchGroupStudents(g);
+        students.forEach(function (student) {
+          cards.push(Object.assign({ group: g }, student));
+        });
+      }
+    } else {
+      const students = await fetchGroupStudents(group);
+      if (studentNumber === ALL_STUDENTS_VALUE) {
+        cards = students.map(function (student) {
+          return Object.assign({ group: group }, student);
+        });
+      } else {
+        const one = students.find(function (student) { return String(student.number) === studentNumber; });
+        cards = one ? [Object.assign({ group: group }, one)] : [];
+      }
     }
-    if (response.students.length === 0) {
-      statusLine.textContent = 'У групі "' + group + '" немає студентів.';
+
+    if (cards.length === 0) {
+      statusLine.textContent = 'Немає студентів для вибраних параметрів.';
       return;
     }
 
-    renderSheets(response.students, group);
-    statusLine.textContent = 'Готово: ' + response.students.length + ' карток, ' +
-      Math.ceil(response.students.length / CARDS_PER_SHEET) + ' аркуш(ів) A4.';
+    statusLine.textContent = 'Малюю QR-коди…';
+    await renderSheets(cards);
+    statusLine.textContent = 'Готово: ' + cards.length + ' карток, ' +
+      Math.ceil(cards.length / CARDS_PER_SHEET) + ' аркуш(ів) A4.';
     printButton.hidden = false;
   } catch (err) {
     statusLine.textContent = 'Немає зв’язку з бекендом: ' + err.message;
@@ -206,30 +287,29 @@ async function onGenerateClicked() {
   }
 }
 
-function renderSheets(students, group) {
-  for (let i = 0; i < students.length; i += CARDS_PER_SHEET) {
+async function renderSheets(cards) {
+  for (let i = 0; i < cards.length; i += CARDS_PER_SHEET) {
     const page = document.createElement('div');
     page.className = 'sheet-page';
-    students.slice(i, i + CARDS_PER_SHEET).forEach(function (student) {
-      page.appendChild(buildCard(student, group));
-    });
     sheetsEl.appendChild(page);
+
+    const pageCards = cards.slice(i, i + CARDS_PER_SHEET);
+    for (const card of pageCards) {
+      page.appendChild(await buildCard(card));
+    }
   }
 }
 
-function buildCard(student, group) {
+async function buildCard(student) {
   const card = document.createElement('div');
   card.className = 'card';
 
-  const qrHolder = document.createElement('div');
-  card.appendChild(qrHolder);
-  // eslint-disable-next-line no-new
-  new QRCode(qrHolder, {
-    text: student.payload,
-    width: 220,
-    height: 220,
-    correctLevel: QRCode.CorrectLevel.M
-  });
+  const canvas = document.createElement('canvas');
+  card.appendChild(canvas);
+  // Бібліотека qrcode (soldair/node-qrcode) сама підбирає версію QR-коду
+  // під довжину тексту — на відміну від qrcodejs, не падає на кириличних
+  // назвах груп ("code length overflow").
+  await QRCode.toCanvas(canvas, student.payload, { width: 600, margin: 1, errorCorrectionLevel: 'M' });
 
   const caption = document.createElement('div');
   caption.className = 'card-caption';
@@ -241,7 +321,7 @@ function buildCard(student, group) {
 
   const groupEl = document.createElement('div');
   groupEl.className = 'card-group';
-  groupEl.textContent = group;
+  groupEl.textContent = student.group;
   caption.appendChild(groupEl);
 
   card.appendChild(caption);
