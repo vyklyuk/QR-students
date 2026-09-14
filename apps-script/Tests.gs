@@ -139,6 +139,40 @@ function testBatchCheckinTextPayloads() {
   Logger.log('testBatchCheckinTextPayloads: рядок коректно розібрано на 2 коди. Підсумок: ' + JSON.stringify(response.summary));
 }
 
+// Перевіряє тільки обробку помилок у sendCard (немає email / неіснуючий номер) —
+// жодного реального листа не надсилає, бо в обох випадках MailApp.sendEmail
+// узагалі не викликається (перевірки в handleSendCard спрацьовують раніше).
+// Реальну розсилку тестуй вручну на "ТЕСТ-01" зі своєю поштою в колонці C.
+function testSendCardValidation() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var testGroup = 'ТЕСТ-01';
+  setUpTestGroup(ss, testGroup); // email-колонка порожня для обох тестових студентів
+
+  var missingEmailRequest = {
+    action: 'sendCard',
+    group: testGroup,
+    number: '1',
+    pngBase64: 'AAAA'
+  };
+  var response = JSON.parse(doPost({ postData: { contents: JSON.stringify(missingEmailRequest) } }).getContent());
+  if (response.status !== 'error' || response.message.indexOf('email') === -1) {
+    throw new Error('testSendCardValidation (немає email) провалено: ' + JSON.stringify(response));
+  }
+
+  var unknownNumberRequest = {
+    action: 'sendCard',
+    group: testGroup,
+    number: '99',
+    pngBase64: 'AAAA'
+  };
+  response = JSON.parse(doPost({ postData: { contents: JSON.stringify(unknownNumberRequest) } }).getContent());
+  if (response.status !== 'error') {
+    throw new Error('testSendCardValidation (неіснуючий номер) провалено: ' + JSON.stringify(response));
+  }
+
+  Logger.log('testSendCardValidation: обидві перевірки помилок пройшли, реальних листів не надіслано.');
+}
+
 function runScenario(title, request, expectedStatus) {
   var fakeEvent = { postData: { contents: JSON.stringify(request) } };
   var response = JSON.parse(doPost(fakeEvent).getContent());

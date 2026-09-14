@@ -26,6 +26,8 @@ function doPost(e) {
         return jsonResponse(handleGroups(request));
       case 'cards':
         return jsonResponse(handleCards(request));
+      case 'sendCard':
+        return jsonResponse(handleSendCard(request));
       default:
         return jsonResponse({ status: 'error', message: 'Невідома дія: ' + request.action });
     }
@@ -251,20 +253,87 @@ function handleCards(request) {
   var students = [];
 
   if (lastRow >= 2) {
-    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    // Колонки: A № | B Прізвище, ім'я | C Email | D Картку надіслано
+    var data = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
     data.forEach(function (row) {
       var number = row[0];
       var name = row[1];
+      var email = row[2];
+      var cardSent = row[3];
       if (!name) {
         return;
       }
       students.push({
         number: number,
         name: name,
+        email: email || '',
+        cardSent: cardSent ? true : false,
         payload: buildSignedPayload(group, String(number), secret)
       });
     });
   }
 
   return { status: 'ok', group: group, students: students };
+}
+
+// action: "sendCard" — вхід {group, number, pngBase64}. Надсилає лист із QR-карткою
+// (PNG у base64, без префіксу data:image/png;base64,) на пошту студента з колонки C,
+// позначає сьогоднішню дату в колонці D ("Картку надіслано"). Лист іде від імені
+// того акаунта, під яким розгорнутий сам Apps Script (SETUP.md, Крок 0).
+function handleSendCard(request) {
+  var group = request.group;
+  var number = request.number;
+  var pngBase64 = request.pngBase64;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(group);
+  if (!sheet) {
+    return { status: 'error', message: 'Групу не знайдено: ' + group };
+  }
+
+  var rowIndex = parseInt(number, 10) + 1; // рядок 1 — заголовки
+  if (!rowIndex || rowIndex < 2 || rowIndex > sheet.getLastRow()) {
+    return { status: 'error', message: 'Студента не знайдено: №' + number };
+  }
+
+  var row = sheet.getRange(rowIndex, 1, 1, 3).getValues()[0];
+  var name = row[1];
+  var email = row[2];
+
+  if (!name) {
+    return { status: 'error', message: 'Студента не знайдено: №' + number };
+  }
+  if (!email) {
+    return { status: 'error', message: name + ': не вказано email' };
+  }
+  if (!pngBase64) {
+    return { status: 'error', message: name + ': не передано зображення картки' };
+  }
+  if (MailApp.getRemainingDailyQuota() <= 0) {
+    return { status: 'error', message: 'Вичерпано денну квоту листів Gmail на сьогодні' };
+  }
+
+  var imageBlob = Utilities.newBlob(Utilities.base64Decode(pngBase64), 'image/png', 'qr-картка.png');
+  var subject = 'QR-картка для відмітки присутності — ' + group;
+  var body =
+    'Вітаємо!\n\n' +
+    'У вкладенні — твоя персональна QR-картка для відмітки присутності на заняттях.\n\n' +
+    'Що з нею робити:\n' +
+    '- Збережи зображення з вкладення в Фото на телефоні.\n' +
+    '- Перед початком (або після) заняття покажи фото з екрана телефона викладачу для сканування.\n\n' +
+    'Важливо:\n' +
+    '- Картка персональна — не передавай її іншим студентам, вона прив\'язана саме до твого номера в групі.\n' +
+    '- Якщо картку загубив, пошкодив чи не отримав — напиши викладачу, картку перевидадуть.\n\n' +
+    'Гарного навчання!';
+
+  MailApp.sendEmail({
+    to: email,
+    subject: subject,
+    body: body,
+    attachments: [imageBlob]
+  });
+
+  sheet.getRange(rowIndex, 4).setValue(new Date());
+
+  return { status: 'ok', name: name, email: email };
 }

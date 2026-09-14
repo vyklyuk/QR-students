@@ -115,11 +115,32 @@
     color: #555;
   }
 
+  .card-mail {
+    margin-top: 0.15cm;
+  }
+
+  .card-mail button {
+    padding: 3px 8px;
+    font-size: 10px;
+    border-radius: 6px;
+  }
+
+  .card-mail .sent {
+    font-size: 10px;
+    color: #2e7d32;
+  }
+
+  .card-mail .error {
+    font-size: 10px;
+    color: #c00;
+  }
+
   [hidden] { display: none !important; }
 
   @media print {
     #toolbar { display: none; }
     body { background: #fff; }
+    .card-mail { display: none; }
     .card {
       break-inside: avoid;
     }
@@ -144,6 +165,7 @@
   </select>
   <button id="generate-button" disabled>Згенерувати картки</button>
   <button id="print-button" hidden>Друкувати</button>
+  <button id="send-all-button" hidden>Надіслати листи всім</button>
   <span id="status-line"></span>
 </div>
 
@@ -163,6 +185,7 @@ const groupSelect = document.getElementById('group-select');
 const studentSelect = document.getElementById('student-select');
 const generateButton = document.getElementById('generate-button');
 const printButton = document.getElementById('print-button');
+const sendAllButton = document.getElementById('send-all-button');
 const statusLine = document.getElementById('status-line');
 const sheetsEl = document.getElementById('sheets');
 
@@ -171,10 +194,14 @@ let allGroups = [];
 // його з бекенда двічі (один раз для заповнення <select>, другий — при генерації).
 let cachedGroup = null;
 let cachedGroupStudents = null;
+// Картки останньої генерації — {student, canvas, mailStatusEl} — потрібні,
+// щоб надіслати лист із уже намальованим QR (canvas.toDataURL), без повторної генерації.
+let renderedCards = [];
 
 groupSelect.addEventListener('change', onGroupChanged);
 generateButton.addEventListener('click', onGenerateClicked);
 printButton.addEventListener('click', function () { window.print(); });
+sendAllButton.addEventListener('click', onSendAllClicked);
 
 loadGroups();
 
@@ -260,7 +287,9 @@ async function onGenerateClicked() {
 
   generateButton.disabled = true;
   printButton.hidden = true;
+  sendAllButton.hidden = true;
   sheetsEl.innerHTML = '';
+  renderedCards = [];
   statusLine.textContent = 'Завантажую підписи від бекенда…';
 
   try {
@@ -296,6 +325,7 @@ async function onGenerateClicked() {
     statusLine.textContent = 'Готово: ' + cards.length + ' карток, ' +
       Math.ceil(cards.length / CARDS_PER_SHEET) + ' аркуш(ів) A4.';
     printButton.hidden = false;
+    sendAllButton.hidden = false;
   } catch (err) {
     statusLine.textContent = 'Немає зв’язку з бекендом: ' + err.message;
   } finally {
@@ -356,7 +386,111 @@ async function buildCard(student) {
   caption.appendChild(groupEl);
 
   card.appendChild(caption);
+
+  const mailStatusEl = document.createElement('div');
+  mailStatusEl.className = 'card-mail';
+  card.appendChild(mailStatusEl);
+
+  const entry = { student: student, canvas: canvas, mailStatusEl: mailStatusEl };
+  renderedCards.push(entry);
+  renderMailStatus(entry);
+
   return card;
+}
+
+// Показує або "Надіслано ..." (якщо колонка "Картку надіслано" вже заповнена),
+// або кнопку "Надіслати" для одного студента (працює і як перша відправка,
+// і як "надіслати повторно" — просто натисни ще раз).
+function renderMailStatus(entry) {
+  entry.mailStatusEl.innerHTML = '';
+
+  if (!entry.student.email) {
+    const noEmail = document.createElement('span');
+    noEmail.className = 'error';
+    noEmail.textContent = 'Немає email';
+    entry.mailStatusEl.appendChild(noEmail);
+    return;
+  }
+
+  if (entry.student.cardSent) {
+    const sent = document.createElement('span');
+    sent.className = 'sent';
+    sent.textContent = 'Надіслано ✓';
+    entry.mailStatusEl.appendChild(sent);
+  }
+
+  const button = document.createElement('button');
+  button.textContent = entry.student.cardSent ? 'Надіслати повторно' : 'Надіслати';
+  button.addEventListener('click', function () { sendOneCard(entry); });
+  entry.mailStatusEl.appendChild(button);
+}
+
+async function sendOneCard(entry) {
+  entry.mailStatusEl.textContent = 'Надсилаю…';
+  try {
+    const pngBase64 = entry.canvas.toDataURL('image/png').split(',')[1];
+    const response = await callBackendWithRetry({
+      action: 'sendCard',
+      group: entry.student.group,
+      number: entry.student.number,
+      pngBase64: pngBase64
+    });
+
+    if (response.status === 'ok') {
+      entry.student.cardSent = true;
+      renderMailStatus(entry);
+      return true;
+    }
+
+    entry.mailStatusEl.innerHTML = '';
+    const errorEl = document.createElement('span');
+    errorEl.className = 'error';
+    errorEl.textContent = response.message || 'Помилка відправки';
+    entry.mailStatusEl.appendChild(errorEl);
+    return false;
+  } catch (err) {
+    entry.mailStatusEl.textContent = 'Немає зв’язку: ' + err.message;
+    return false;
+  }
+}
+
+// Розсилка всім, кому ще не надіслано (і кому не бракує email) — пачками по 20
+// із паузою між пачками (ROADMAP.md, Етап 5), щоб не заспамити Gmail-квоту одразу.
+async function onSendAllClicked() {
+  sendAllButton.disabled = true;
+  const pending = renderedCards.filter(function (entry) {
+    return entry.student.email && !entry.student.cardSent;
+  });
+
+  if (pending.length === 0) {
+    statusLine.textContent = 'Немає кому надсилати — усі вже отримали картки (або немає email).';
+    sendAllButton.disabled = false;
+    return;
+  }
+
+  let sentCount = 0;
+  for (let i = 0; i < pending.length; i++) {
+    statusLine.textContent = 'Надсилаю ' + (i + 1) + ' з ' + pending.length + '…';
+    const ok = await sendOneCard(pending[i]);
+    if (!ok) {
+      statusLine.textContent = 'Зупинено на ' + (i + 1) + ' з ' + pending.length +
+        ' — дивись помилку під карткою (можливо, вичерпано денну квоту).';
+      sendAllButton.disabled = false;
+      return;
+    }
+    sentCount++;
+
+    const isBatchBoundary = sentCount % 20 === 0;
+    if (isBatchBoundary && i + 1 < pending.length) {
+      statusLine.textContent = 'Надіслано ' + sentCount + ' — коротка пауза перед наступною пачкою…';
+      await sleep(3000);
+    } else {
+      await sleep(300);
+    }
+  }
+
+  statusLine.textContent = 'Розсилку завершено: надіслано ' + sentCount + ' із ' + pending.length + '.';
+  sendAllButton.disabled = false;
 }
 
 // ---------- Звернення до бекенда ----------
