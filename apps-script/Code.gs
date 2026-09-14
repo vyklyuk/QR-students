@@ -155,7 +155,14 @@ function handleBatchCheckin(request) {
     }
   });
 
-  return { status: 'ok', results: results, summary: summary };
+  // Готовий рядок із прізвищами (через кому) — щоб "Команди" на телефоні
+  // могли одразу показати, кого зарахували, без розбору масиву results.
+  var presentNames = results
+    .filter(function (r) { return r.status === 'ok' || r.status === 'duplicate'; })
+    .map(function (r) { return r.name; })
+    .join(', ');
+
+  return { status: 'ok', results: results, summary: summary, presentNames: presentNames };
 }
 
 // action: "roster" — вхід {session}. Список студентів усіх груп, перелічених

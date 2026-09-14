@@ -107,6 +107,7 @@ function testBatchCheckin() {
   }
 
   Logger.log('testBatchCheckin: усі 4 записи в пакеті отримали правильний статус. Підсумок: ' + JSON.stringify(response.summary));
+  Logger.log('presentNames: ' + response.presentNames);
 }
 
 // Той самий сценарій, але payloads переданий одним рядком через переноси
