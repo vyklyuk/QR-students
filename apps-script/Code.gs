@@ -80,14 +80,19 @@ function handleCheckin(request) {
   };
 }
 
-// action: "batchCheckin" — вхід {payloads: [рядок, ...], session}. Той самий
+// action: "batchCheckin" — вхід {payloads: [рядок, ...], pair} (або {..., session},
+// якщо треба задати конкретну дату вручну — напр. для тестів). Той самий
 // алгоритм, що й у checkin, для кожного коду по черзі, але за ОДНЕ звернення
 // до Apps Script (одне відкриття таблиці) замість окремого виклику на кожного
 // студента. Призначено для сценарію "спершу сканувати офлайн (напр. Команди
 // на iPhone накопичують коди без мережі), потім відправити все одним пакетом".
+//
+// Дату сесії бере сам сервер (за своїм годинником) — клієнту (телефону)
+// вистачає передати лише номер пари, без ризику розбіжності часових поясів
+// телефон/сервер чи забутої дати.
 function handleBatchCheckin(request) {
   var secret = getHmacSecret();
-  var session = request.session;
+  var session = request.session || buildTodaySession(request.pair);
   var payloads = request.payloads || [];
   var results = [];
 
