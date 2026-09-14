@@ -173,6 +173,15 @@ function testSendCardValidation() {
   Logger.log('testSendCardValidation: обидві перевірки помилок пройшли, реальних листів не надіслано.');
 }
 
+// Запусти цю функцію ОДИН РАЗ вручну з редактора (вибрати у списку функцій
+// вгорі → Виконати), щоб підтвердити дозвіл на Gmail (MailApp) — з'явиться
+// стандартний екран Google з проханням авторизації, натисни "Дозволити".
+// Через сайт (доPost) цей дозвіл підтвердити не можна, лише отак, напряму
+// з редактора. Реальних листів не надсилає — тільки перевіряє квоту.
+function authorizeMailApp() {
+  Logger.log('Залишок денної квоти Gmail: ' + MailApp.getRemainingDailyQuota());
+}
+
 function runScenario(title, request, expectedStatus) {
   var fakeEvent = { postData: { contents: JSON.stringify(request) } };
   var response = JSON.parse(doPost(fakeEvent).getContent());
