@@ -90,10 +90,28 @@ function handleCheckin(request) {
 // Дату сесії бере сам сервер (за своїм годинником) — клієнту (телефону)
 // вистачає передати лише номер пари, без ризику розбіжності часових поясів
 // телефон/сервер чи забутої дати.
+// "Команди" на iPhone не завжди вдається налаштувати поле payloads як
+// справжній JSON-масив (тип поля "Масив" у деяких версіях складно знайти чи
+// підв'язати) — тому приймаємо або реальний масив, або звичайний рядок,
+// де кожен код на своєму рядку (чи через кому): так його передає звичайне
+// текстове поле зі списком "Скани".
+function normalizePayloads(raw) {
+  if (!raw) {
+    return [];
+  }
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  return String(raw)
+    .split(/\r?\n|,/)
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) { return s.length > 0; });
+}
+
 function handleBatchCheckin(request) {
   var secret = getHmacSecret();
   var session = request.session || buildTodaySession(request.pair);
-  var payloads = request.payloads || [];
+  var payloads = normalizePayloads(request.payloads);
   var results = [];
 
   payloads.forEach(function (payload) {

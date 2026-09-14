@@ -109,6 +109,35 @@ function testBatchCheckin() {
   Logger.log('testBatchCheckin: усі 4 записи в пакеті отримали правильний статус. Підсумок: ' + JSON.stringify(response.summary));
 }
 
+// Той самий сценарій, але payloads переданий одним рядком через переноси
+// рядків — так виходить, коли в "Командах" на iPhone поле не вдалось
+// налаштувати як справжній JSON-масив (normalizePayloads() у Code.gs).
+function testBatchCheckinTextPayloads() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var secret = getHmacSecret();
+  var testGroup = 'ТЕСТ-01';
+  var testSession = 'тест-пакет-текст ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+  setUpTestGroup(ss, testGroup);
+
+  var validPayload = buildSignedPayload(testGroup, '1', secret);
+  var unknownPayload = buildSignedPayload(testGroup, '99', secret);
+
+  var request = {
+    action: 'batchCheckin',
+    session: testSession,
+    payloads: validPayload + '\n' + unknownPayload // рядок, не масив
+  };
+  var fakeEvent = { postData: { contents: JSON.stringify(request) } };
+  var response = JSON.parse(doPost(fakeEvent).getContent());
+
+  if (response.summary.ok !== 1 || response.summary.unknown !== 1) {
+    throw new Error('testBatchCheckinTextPayloads провалено. Підсумок: ' + JSON.stringify(response.summary));
+  }
+
+  Logger.log('testBatchCheckinTextPayloads: рядок коректно розібрано на 2 коди. Підсумок: ' + JSON.stringify(response.summary));
+}
+
 function runScenario(title, request, expectedStatus) {
   var fakeEvent = { postData: { contents: JSON.stringify(request) } };
   var response = JSON.parse(doPost(fakeEvent).getContent());
