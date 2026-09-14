@@ -384,21 +384,23 @@ async function startCamera() {
     cameraSelect.hidden = true;
   }
 
-  // За замовчуванням просимо в браузера тильну камеру — зручніше показувати
-  // картку студенту, поки викладач дивиться на екран, і надійніше, ніж
-  // угадувати індекс у списку пристроїв (він різний на різних телефонах).
-  html5QrCode = new Html5Qrcode('reader');
-  try {
-    await html5QrCode.start(
-      { facingMode: { ideal: 'environment' } },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      onDecoded,
-      function () { /* код не знайдено в кадрі — це нормальний стан кожного кадру */ }
-    );
-  } catch (err) {
-    // Браузер не підтримує вибір за facingMode (рідко) — беремо перший пристрій зі списку.
-    await restartCamera(cameras[0].id);
-  }
+  const defaultCameraId = pickDefaultCamera(cameras);
+  cameraSelect.value = defaultCameraId;
+  await restartCamera(defaultCameraId);
+}
+
+// На телефоні за міткою пристрою намагаємось вгадати тильну камеру (зручніше
+// показувати картку студенту, поки викладач дивиться на екран). На ноутбуці
+// мітки "back/rear" немає — просто береться перший (єдиний) пристрій, як і
+// раніше. Навмисно НЕ використовуємо facingMode-обмеження в getUserMedia:
+// на деяких десктопних браузерах/вебкамерах воно не відкатується на єдину
+// наявну камеру, а просто не запускає відео.
+function pickDefaultCamera(cameras) {
+  const back = cameras.find(function (camera) {
+    const label = (camera.label || '').toLowerCase();
+    return label.indexOf('back') !== -1 || label.indexOf('rear') !== -1 || label.indexOf('environment') !== -1;
+  });
+  return back ? back.id : cameras[0].id;
 }
 
 // Підписи камер у getCameras() — сирі назви драйвера (напр. "camera2 0, facing back").
