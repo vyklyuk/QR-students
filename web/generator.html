@@ -327,6 +327,11 @@ async function buildCard(student) {
     // під довжину тексту — на відміну від qrcodejs, не падає на кириличних
     // назвах груп ("code length overflow").
     await QRCode.toCanvas(canvas, student.payload, { width: 600, margin: 1, errorCorrectionLevel: 'M' });
+    // Бібліотека сама проставляє інлайновий style="width/height" у пікселях
+    // (з опції width) — він переважає над правилом у <style>, тож фізичний
+    // розмір на друку доводиться форсувати тут, а не в CSS.
+    canvas.style.width = '5cm';
+    canvas.style.height = '5cm';
   } catch (err) {
     // Не рвемо всю партію через один код — показуємо помилку прямо на картці.
     canvas.remove();
