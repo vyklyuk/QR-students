@@ -511,10 +511,18 @@ function showResult(name, status) {
 
 function unlockAudio() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // На мобільних браузерах контекст часто створюється в стані "suspended"
+  // навіть у відповідь на клік користувача — без явного resume() звуку не буде.
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
 }
 
 function playTone(frequency, durationMs, type) {
   if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
   const oscillator = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   oscillator.type = type || 'sine';
