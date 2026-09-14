@@ -160,6 +160,15 @@
 
   #roster-list li.checked .mark::after { content: "✓"; }
 
+  #roster-list li.group-header {
+    cursor: default;
+    background: #222a37;
+    color: var(--color-muted);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   #stop-button {
     background: transparent;
     color: var(--color-muted);
@@ -205,9 +214,6 @@
 <div id="setup-screen">
   <h1>QR-відмітка присутності</h1>
 
-  <label for="group-input">Група</label>
-  <input id="group-input" type="text" placeholder="напр. КН-31" autocomplete="off">
-
   <label for="date-input">Дата</label>
   <input id="date-input" type="date">
 
@@ -222,7 +228,7 @@
   <div id="camera-column">
     <div id="camera-toolbar">
       <select id="camera-select" hidden></select>
-      <button id="stop-button">Змінити групу/пару</button>
+      <button id="stop-button">Змінити дату/пару</button>
     </div>
     <div id="session-label"></div>
     <div id="reader"></div>
@@ -267,7 +273,6 @@ const STATUS_COLORS = {
 
 const setupScreen = document.getElementById('setup-screen');
 const scanScreen = document.getElementById('scan-screen');
-const groupInput = document.getElementById('group-input');
 const dateInput = document.getElementById('date-input');
 const pairInput = document.getElementById('pair-input');
 const startButton = document.getElementById('start-button');
@@ -281,9 +286,8 @@ const resultOverlay = document.getElementById('result-overlay');
 const resultName = document.getElementById('result-name');
 const resultStatus = document.getElementById('result-status');
 
-let currentGroup = '';
 let currentSession = '';
-let roster = []; // [{number, name, checked}]
+let roster = []; // [{group, number, name, checked}]
 let html5QrCode = null;
 let isLocked = false;
 let audioCtx = null;
@@ -294,12 +298,11 @@ startButton.addEventListener('click', onStartClicked);
 stopButton.addEventListener('click', backToSetup);
 
 async function onStartClicked() {
-  const group = groupInput.value.trim();
   const date = dateInput.value;
   const pair = pairInput.value.trim();
 
-  if (!group || !date || !pair) {
-    setupError.textContent = 'Заповни групу, дату і номер пари.';
+  if (!date || !pair) {
+    setupError.textContent = 'Заповни дату і номер пари.';
     return;
   }
 
@@ -308,7 +311,6 @@ async function onStartClicked() {
     return;
   }
 
-  currentGroup = group;
   currentSession = date + ' п.' + pair;
 
   startButton.disabled = true;
@@ -316,9 +318,10 @@ async function onStartClicked() {
   unlockAudio(); // створюємо AudioContext синхронно в обробнику кліку — інакше браузер заблокує звук
 
   try {
+    // Групи бере з першого рядка вкладки "Налаштування" — вказувати вручну не треба,
+    // сканер одразу приймає студентів з усіх перелічених там груп.
     const response = await callBackendWithRetry({
       action: 'roster',
-      group: currentGroup,
       session: currentSession
     });
 
@@ -332,7 +335,7 @@ async function onStartClicked() {
     renderRoster();
     setupScreen.hidden = true;
     scanScreen.hidden = false;
-    sessionLabel.textContent = currentGroup + ' · ' + currentSession;
+    sessionLabel.textContent = currentSession;
 
     await startCamera();
   } catch (err) {
@@ -412,7 +415,6 @@ async function handleCheckin(payload) {
     const response = await callBackendWithRetry({
       action: 'checkin',
       payload: payload,
-      group: currentGroup,
       session: currentSession
     });
     applyResult(response);
@@ -422,10 +424,22 @@ async function handleCheckin(payload) {
 }
 
 // ---------- Ручна відмітка ----------
+// roster — плаский масив, згрупований бекендом за групами (усі студенти однієї
+// групи йдуть підряд); тут лише вставляємо підзаголовок там, де група змінюється.
 
 function renderRoster() {
   rosterListEl.innerHTML = '';
+  let previousGroup = null;
+
   roster.forEach(function (student) {
+    if (student.group !== previousGroup) {
+      const header = document.createElement('li');
+      header.className = 'group-header';
+      header.textContent = student.group;
+      rosterListEl.appendChild(header);
+      previousGroup = student.group;
+    }
+
     const li = document.createElement('li');
     li.textContent = student.name;
     const mark = document.createElement('span');
@@ -450,7 +464,7 @@ async function markManually(student) {
   try {
     const response = await callBackendWithRetry({
       action: 'manual',
-      group: currentGroup,
+      group: student.group,
       number: student.number,
       session: currentSession
     });
@@ -464,14 +478,11 @@ function applyResult(response) {
   showResult(response.name || '', response.status);
 
   if (response.status === 'ok' || response.status === 'duplicate') {
-    const student = roster.find(function (s) { return s.name === response.name; });
+    const student = roster.find(function (s) {
+      return s.group === response.group && s.name === response.name;
+    });
     if (student) {
       student.checked = true;
-    }
-    if (typeof response.presentCount === 'number') {
-      counterEl.textContent = 'Присутні: ' + response.presentCount + ' / ' + roster.length;
-    } else {
-      updateCounterFromRoster();
     }
     renderRoster();
   }

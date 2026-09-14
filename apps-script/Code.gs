@@ -39,14 +39,16 @@ function jsonResponse(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// action: "checkin" — вхід {payload, group, session}.
+// action: "checkin" — вхід {payload, session}. Група студента визначається з
+// самого payload (вона там уже підписана), тому клієнту вказувати її не треба —
+// один сканер обслуговує одразу всі групи, перелічені в "Налаштуваннях".
 function handleCheckin(request) {
   var secret = getHmacSecret();
   var parsed = parsePayload(request.payload);
 
   if (!parsed) {
-    writeLog(request.group || '?', '?', 'forged');
-    return { status: 'forged', group: request.group || '' };
+    writeLog('?', '?', 'forged');
+    return { status: 'forged', group: '' };
   }
 
   if (!verifySignature(parsed, secret)) {
@@ -72,36 +74,47 @@ function handleCheckin(request) {
   };
 }
 
-// action: "roster" — вхід {group, session}. Список групи з позначками, хто вже відмічений.
+// action: "roster" — вхід {session}. Список студентів усіх груп, перелічених
+// у першому рядку "Налаштувань", з позначками, хто вже відмічений на цьому занятті.
 function handleRoster(request) {
-  var group = request.group;
+  var groups = getConfiguredGroups();
+  if (groups.length === 0) {
+    return { status: 'error', message: 'У вкладці "Налаштування" не вказано жодної групи в першому рядку.' };
+  }
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var groupSheet = ss.getSheetByName(group);
-  if (!groupSheet) {
-    return { status: 'error', message: 'Групу не знайдено: ' + group };
-  }
+  var roster = [];
 
-  var lastRow = groupSheet.getLastRow();
-  var students = [];
-  if (lastRow >= 2) {
-    var data = groupSheet.getRange(2, 1, lastRow - 1, 2).getValues();
-    for (var i = 0; i < data.length; i++) {
-      if (data[i][1]) {
-        students.push({ number: data[i][0], name: data[i][1] });
-      }
+  groups.forEach(function (group) {
+    var groupSheet = ss.getSheetByName(group);
+    if (!groupSheet) {
+      return; // вкладку групи ще не створено — пропускаємо
     }
-  }
 
-  var checkedNames = getCheckedNames(group, request.session);
-  var roster = students.map(function (student) {
-    return {
-      number: student.number,
-      name: student.name,
-      checked: checkedNames.indexOf(student.name) !== -1
-    };
+    var lastRow = groupSheet.getLastRow();
+    if (lastRow < 2) {
+      return;
+    }
+
+    var data = groupSheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var checkedNames = getCheckedNames(group, request.session);
+
+    data.forEach(function (row) {
+      var number = row[0];
+      var name = row[1];
+      if (!name) {
+        return;
+      }
+      roster.push({
+        group: group,
+        number: number,
+        name: name,
+        checked: checkedNames.indexOf(name) !== -1
+      });
+    });
   });
 
-  return { status: 'ok', group: group, roster: roster };
+  return { status: 'ok', groups: groups, roster: roster };
 }
 
 // action: "manual" — вхід {group, number, session}. Ручна відмітка, пише "~" замість "+".
