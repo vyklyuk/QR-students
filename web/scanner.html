@@ -116,7 +116,13 @@
 
   #session-label {
     color: var(--color-muted);
-    margin: 6px 0 14px;
+    margin: 6px 0 4px;
+  }
+
+  #decoder-info {
+    color: var(--color-muted);
+    font-size: 12px;
+    margin-bottom: 10px;
   }
 
   #sidebar {
@@ -231,6 +237,7 @@
       <button id="stop-button">Змінити дату/пару</button>
     </div>
     <div id="session-label"></div>
+    <div id="decoder-info"></div>
     <div id="reader"></div>
   </div>
 
@@ -278,6 +285,7 @@ const pairInput = document.getElementById('pair-input');
 const startButton = document.getElementById('start-button');
 const setupError = document.getElementById('setup-error');
 const sessionLabel = document.getElementById('session-label');
+const decoderInfo = document.getElementById('decoder-info');
 const cameraSelect = document.getElementById('camera-select');
 const stopButton = document.getElementById('stop-button');
 const counterEl = document.getElementById('counter');
@@ -336,6 +344,7 @@ async function onStartClicked() {
     setupScreen.hidden = true;
     scanScreen.hidden = false;
     sessionLabel.textContent = currentSession;
+    showDecoderInfo();
 
     await startCamera();
   } catch (err) {
@@ -401,6 +410,24 @@ function pickDefaultCamera(cameras) {
     return label.indexOf('back') !== -1 || label.indexOf('rear') !== -1 || label.indexOf('environment') !== -1;
   });
   return back ? back.id : cameras[0].id;
+}
+
+// Показує, чи браузер реально використовує швидкий нативний BarcodeDetector,
+// чи впав назад на повільніший JS-декодер (те саме, що перевіряє html5-qrcode
+// всередині experimentalFeatures.useBarCodeDetectorIfSupported).
+async function showDecoderInfo() {
+  if (typeof BarcodeDetector === 'undefined') {
+    decoderInfo.textContent = 'Розпізнавання: JS-декодер (BarcodeDetector не підтримується цим браузером)';
+    return;
+  }
+  try {
+    const formats = await BarcodeDetector.getSupportedFormats();
+    decoderInfo.textContent = formats.indexOf('qr_code') !== -1
+      ? 'Розпізнавання: нативний BarcodeDetector браузера (швидкий режим)'
+      : 'Розпізнавання: JS-декодер (BarcodeDetector є, але без підтримки QR)';
+  } catch (err) {
+    decoderInfo.textContent = 'Розпізнавання: JS-декодер (не вдалося перевірити BarcodeDetector)';
+  }
 }
 
 // Підписи камер у getCameras() — сирі назви драйвера (напр. "camera2 0, facing back").
