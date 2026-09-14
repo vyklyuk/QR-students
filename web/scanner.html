@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR-відмітка — сканер</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --color-bg: #12161c;
+    --color-panel: #1b212b;
+    --color-text: #e8ecf1;
+    --color-muted: #8a93a3;
+    --color-accent: #3b82f6;
+    --color-ok: #1b7a3d;
+    --color-duplicate: #b8860b;
+    --color-bad: #a12828;
+    --color-error: #4a4f57;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+
+  h1, h2 { font-weight: 600; }
+
+  /* ---------- Стартовий екран ---------- */
+
+  #setup-screen {
+    max-width: 420px;
+    margin: 10vh auto 0;
+    padding: 24px;
+    background: var(--color-panel);
+    border-radius: 12px;
+  }
+
+  #setup-screen label {
+    display: block;
+    margin: 16px 0 6px;
+    color: var(--color-muted);
+    font-size: 14px;
+  }
+
+  #setup-screen input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 16px;
+    background: #0f1319;
+    border: 1px solid #2a3140;
+    border-radius: 8px;
+    color: var(--color-text);
+  }
+
+  #setup-error {
+    margin-top: 12px;
+    color: #ff8a8a;
+    font-size: 14px;
+    min-height: 1.2em;
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    padding: 12px 18px;
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  #start-button { width: 100%; margin-top: 22px; }
+
+  /* ---------- Екран сканування ---------- */
+
+  #scan-screen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  #camera-column {
+    flex: 1 1 420px;
+  }
+
+  #camera-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  #camera-toolbar select {
+    flex: 1;
+    padding: 8px;
+    background: var(--color-panel);
+    color: var(--color-text);
+    border: 1px solid #2a3140;
+    border-radius: 8px;
+  }
+
+  #reader {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+  }
+
+  #session-label {
+    color: var(--color-muted);
+    margin: 6px 0 14px;
+  }
+
+  #sidebar {
+    flex: 1 1 260px;
+    max-width: 340px;
+  }
+
+  #counter {
+    background: var(--color-panel);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 20px;
+    margin-bottom: 12px;
+  }
+
+  #roster-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: var(--color-panel);
+    border-radius: 10px;
+    overflow: hidden;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  #roster-list li {
+    padding: 10px 14px;
+    border-bottom: 1px solid #262d3a;
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
+  }
+
+  #roster-list li:last-child { border-bottom: none; }
+
+  #roster-list li.checked {
+    color: var(--color-muted);
+    cursor: default;
+  }
+
+  #roster-list li.checked .mark::after { content: "✓"; }
+
+  #stop-button {
+    background: transparent;
+    color: var(--color-muted);
+    border: 1px solid #2a3140;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+
+  /* ---------- Повноекранний результат ---------- */
+
+  #result-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    color: #fff;
+    z-index: 10;
+  }
+
+  #result-name {
+    font-size: 12vw;
+    line-height: 1.1;
+    font-weight: 700;
+    max-width: 90vw;
+    word-break: break-word;
+  }
+
+  #result-status {
+    font-size: 5vw;
+    margin-top: 16px;
+    opacity: 0.9;
+  }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="setup-screen">
+  <h1>QR-відмітка присутності</h1>
+
+  <label for="group-input">Група</label>
+  <input id="group-input" type="text" placeholder="напр. КН-31" autocomplete="off">
+
+  <label for="date-input">Дата</label>
+  <input id="date-input" type="date">
+
+  <label for="pair-input">Номер пари</label>
+  <input id="pair-input" type="number" min="1" max="8" value="1">
+
+  <button id="start-button">Почати сканування</button>
+  <div id="setup-error"></div>
+</div>
+
+<div id="scan-screen" hidden>
+  <div id="camera-column">
+    <div id="camera-toolbar">
+      <select id="camera-select" hidden></select>
+      <button id="stop-button">Змінити групу/пару</button>
+    </div>
+    <div id="session-label"></div>
+    <div id="reader"></div>
+  </div>
+
+  <div id="sidebar">
+    <div id="counter">Присутні: 0 / 0</div>
+    <ul id="roster-list"></ul>
+  </div>
+</div>
+
+<div id="result-overlay" hidden>
+  <div id="result-name"></div>
+  <div id="result-status"></div>
+</div>
+
+<script src="config.local.js"></script>
+<script>
+'use strict';
+
+// Затримка сканера після будь-якого результату, щоб одна картка перед камерою
+// не "пробилась" двічі одним рухом (ROADMAP.md, Етап 2).
+const SCAN_COOLDOWN_MS = 2500;
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 800;
+
+const STATUS_LABELS = {
+  ok: 'Зараховано',
+  duplicate: 'Уже відмічений(а)',
+  forged: 'Підроблений код',
+  unknown: 'Невідомий код',
+  error: 'Помилка з’єднання'
+};
+
+const STATUS_COLORS = {
+  ok: 'var(--color-ok)',
+  duplicate: 'var(--color-duplicate)',
+  forged: 'var(--color-bad)',
+  unknown: 'var(--color-bad)',
+  error: 'var(--color-error)'
+};
+
+const setupScreen = document.getElementById('setup-screen');
+const scanScreen = document.getElementById('scan-screen');
+const groupInput = document.getElementById('group-input');
+const dateInput = document.getElementById('date-input');
+const pairInput = document.getElementById('pair-input');
+const startButton = document.getElementById('start-button');
+const setupError = document.getElementById('setup-error');
+const sessionLabel = document.getElementById('session-label');
+const cameraSelect = document.getElementById('camera-select');
+const stopButton = document.getElementById('stop-button');
+const counterEl = document.getElementById('counter');
+const rosterListEl = document.getElementById('roster-list');
+const resultOverlay = document.getElementById('result-overlay');
+const resultName = document.getElementById('result-name');
+const resultStatus = document.getElementById('result-status');
+
+let currentGroup = '';
+let currentSession = '';
+let roster = []; // [{number, name, checked}]
+let html5QrCode = null;
+let isLocked = false;
+let audioCtx = null;
+
+dateInput.value = new Date().toISOString().slice(0, 10);
+
+startButton.addEventListener('click', onStartClicked);
+stopButton.addEventListener('click', backToSetup);
+
+async function onStartClicked() {
+  const group = groupInput.value.trim();
+  const date = dateInput.value;
+  const pair = pairInput.value.trim();
+
+  if (!group || !date || !pair) {
+    setupError.textContent = 'Заповни групу, дату і номер пари.';
+    return;
+  }
+
+  if (typeof APPS_SCRIPT_URL === 'undefined') {
+    setupError.textContent = 'Не знайдено config.local.js з APPS_SCRIPT_URL (див. SETUP.md).';
+    return;
+  }
+
+  currentGroup = group;
+  currentSession = date + ' п.' + pair;
+
+  startButton.disabled = true;
+  setupError.textContent = '';
+  unlockAudio(); // створюємо AudioContext синхронно в обробнику кліку — інакше браузер заблокує звук
+
+  try {
+    const response = await callBackendWithRetry({
+      action: 'roster',
+      group: currentGroup,
+      session: currentSession
+    });
+
+    if (response.status !== 'ok') {
+      setupError.textContent = response.message || 'Не вдалося завантажити список групи.';
+      startButton.disabled = false;
+      return;
+    }
+
+    roster = response.roster;
+    renderRoster();
+    setupScreen.hidden = true;
+    scanScreen.hidden = false;
+    sessionLabel.textContent = currentGroup + ' · ' + currentSession;
+
+    await startCamera();
+  } catch (err) {
+    setupError.textContent = 'Немає зв’язку з бекендом: ' + err.message;
+  } finally {
+    startButton.disabled = false;
+  }
+}
+
+async function backToSetup() {
+  if (html5QrCode) {
+    try {
+      await html5QrCode.stop();
+      html5QrCode.clear();
+    } catch (err) {
+      // камера вже могла зупинитись сама — не критично
+    }
+    html5QrCode = null;
+  }
+  scanScreen.hidden = true;
+  setupScreen.hidden = false;
+}
+
+// ---------- Камера і сканування ----------
+
+async function startCamera() {
+  const cameras = await Html5Qrcode.getCameras();
+  if (!cameras || cameras.length === 0) {
+    setupError.textContent = 'Камеру не знайдено.';
+    return;
+  }
+
+  if (cameras.length > 1) {
+    cameraSelect.innerHTML = '';
+    cameras.forEach(function (camera) {
+      const option = document.createElement('option');
+      option.value = camera.id;
+      option.textContent = camera.label || camera.id;
+      cameraSelect.appendChild(option);
+    });
+    cameraSelect.hidden = false;
+    cameraSelect.onchange = function () {
+      restartCamera(cameraSelect.value);
+    };
+  } else {
+    cameraSelect.hidden = true;
+  }
+
+  await restartCamera(cameras[0].id);
+}
+
+async function restartCamera(cameraId) {
+  if (html5QrCode) {
+    try { await html5QrCode.stop(); } catch (err) { /* ігноруємо */ }
+  } else {
+    html5QrCode = new Html5Qrcode('reader');
+  }
+
+  await html5QrCode.start(
+    cameraId,
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    onDecoded,
+    function () { /* код не знайдено в кадрі — це нормальний стан кожного кадру */ }
+  );
+}
+
+function onDecoded(decodedText) {
+  if (isLocked) return;
+  isLocked = true;
+  handleCheckin(decodedText).finally(function () {
+    setTimeout(function () { isLocked = false; }, SCAN_COOLDOWN_MS);
+  });
+}
+
+async function handleCheckin(payload) {
+  try {
+    const response = await callBackendWithRetry({
+      action: 'checkin',
+      payload: payload,
+      group: currentGroup,
+      session: currentSession
+    });
+    applyResult(response);
+  } catch (err) {
+    showResult('', 'error');
+  }
+}
+
+// ---------- Ручна відмітка ----------
+
+function renderRoster() {
+  rosterListEl.innerHTML = '';
+  roster.forEach(function (student) {
+    const li = document.createElement('li');
+    li.textContent = student.name;
+    const mark = document.createElement('span');
+    mark.className = 'mark';
+    li.appendChild(mark);
+    if (student.checked) {
+      li.classList.add('checked');
+    } else {
+      li.addEventListener('click', function () { markManually(student); });
+    }
+    rosterListEl.appendChild(li);
+  });
+  updateCounterFromRoster();
+}
+
+function updateCounterFromRoster() {
+  const checkedCount = roster.filter(function (s) { return s.checked; }).length;
+  counterEl.textContent = 'Присутні: ' + checkedCount + ' / ' + roster.length;
+}
+
+async function markManually(student) {
+  try {
+    const response = await callBackendWithRetry({
+      action: 'manual',
+      group: currentGroup,
+      number: student.number,
+      session: currentSession
+    });
+    applyResult(response);
+  } catch (err) {
+    showResult('', 'error');
+  }
+}
+
+function applyResult(response) {
+  showResult(response.name || '', response.status);
+
+  if (response.status === 'ok' || response.status === 'duplicate') {
+    const student = roster.find(function (s) { return s.name === response.name; });
+    if (student) {
+      student.checked = true;
+    }
+    if (typeof response.presentCount === 'number') {
+      counterEl.textContent = 'Присутні: ' + response.presentCount + ' / ' + roster.length;
+    } else {
+      updateCounterFromRoster();
+    }
+    renderRoster();
+  }
+}
+
+// ---------- Повноекранний результат і звук ----------
+
+function showResult(name, status) {
+  const label = STATUS_LABELS[status] || status;
+  if (name) {
+    resultName.textContent = name;
+    resultStatus.textContent = label;
+  } else {
+    // forged/unknown/error не повертають прізвища — показуємо лише статус.
+    resultName.textContent = label;
+    resultStatus.textContent = '';
+  }
+  resultOverlay.style.background = STATUS_COLORS[status] || STATUS_COLORS.error;
+  resultOverlay.hidden = false;
+  playSound(status);
+
+  setTimeout(function () {
+    resultOverlay.hidden = true;
+  }, SCAN_COOLDOWN_MS);
+}
+
+function unlockAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playTone(frequency, durationMs, type) {
+  if (!audioCtx) return;
+  const oscillator = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  oscillator.type = type || 'sine';
+  oscillator.frequency.value = frequency;
+  oscillator.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+  oscillator.start();
+  oscillator.stop(audioCtx.currentTime + durationMs / 1000);
+}
+
+function playSound(status) {
+  if (status === 'ok') {
+    playTone(880, 150, 'sine');
+  } else if (status === 'duplicate') {
+    playTone(440, 120, 'sine');
+    setTimeout(function () { playTone(440, 120, 'sine'); }, 180);
+  } else {
+    playTone(200, 400, 'sawtooth');
+  }
+}
+
+// ---------- Звернення до бекенда ----------
+// Content-Type: text/plain — щоб fetch лишався "простим" запитом і не викликав
+// CORS-preflight, який Apps Script не обробляє (CLAUDE.md, правило 3).
+
+async function callBackend(body) {
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body)
+  });
+  return response.json();
+}
+
+function sleep(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+async function callBackendWithRetry(body) {
+  let lastError;
+  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await callBackend(body);
+    } catch (err) {
+      lastError = err;
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+  throw lastError;
+}
+</script>
+</body>
+</html>

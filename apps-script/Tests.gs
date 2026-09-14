@@ -93,3 +93,55 @@ function setUpTestGroup(ss, testGroup) {
     [2, 'Тестова Марія Петрівна']
   ]);
 }
+
+// Допоміжна функція для налагодження сторінки сканера (Етап 2), поки немає
+// друкованих карток чи генератора (Етап 4). Запускати вручну з редактора.
+//
+// Бере вкладку `group` (за замовчуванням "ТЕСТ" — заведи її сам, за зразком
+// setUpTestGroup, із 3-5 вигаданими прізвищами), формує підписаний payload
+// для кожного студента і виводить у Журнал виконання. Кожен рядок можна
+// перетворити на QR-код будь-яким онлайн-генератором і показати сторінці
+// сканера з екрана другого пристрою. Додатково виводить один навмисно
+// зіпсований код і один із неіснуючим номером — щоб перевірити статуси
+// "forged" і "unknown".
+function logTestCodes(group) {
+  group = group || 'ТЕСТ';
+  var secret = getHmacSecret();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(group);
+  if (!sheet) {
+    Logger.log('Вкладку "' + group + '" не знайдено. Створи її з кількома вигаданими студентами.');
+    return;
+  }
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    Logger.log('У вкладці "' + group + '" немає студентів.');
+    return;
+  }
+
+  var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  var lines = [];
+
+  data.forEach(function (row) {
+    var number = row[0];
+    var name = row[1];
+    if (!name) return;
+    var payload = buildSignedPayload(group, String(number), secret);
+    lines.push(name + ' (№' + number + '): ' + payload);
+  });
+
+  if (lines.length === 0) {
+    Logger.log('У вкладці "' + group + '" немає заповнених рядків.');
+    return;
+  }
+
+  var forgedPayload = buildSignedPayload(group, String(data[0][0]), secret).slice(0, -1) + 'X';
+  lines.push('Навмисно зіпсований підпис (очікуємо "forged"): ' + forgedPayload);
+
+  var unknownNumber = Number(data[data.length - 1][0]) + 1000;
+  var unknownPayload = buildSignedPayload(group, String(unknownNumber), secret);
+  lines.push('Неіснуючий номер (очікуємо "unknown"): ' + unknownPayload);
+
+  Logger.log(lines.join('\n'));
+}
