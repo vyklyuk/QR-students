@@ -426,7 +426,13 @@ async function restartCamera(cameraId) {
 
   await html5QrCode.start(
     cameraId,
-    { fps: 10, qrbox: { width: 250, height: 250 } },
+    {
+      fps: 15,
+      qrbox: { width: 250, height: 250 },
+      // Нативний розпізнавач штрихкодів браузера (де є) значно швидший і
+      // точніший за чистий JS-декодер — саме він і сповільнював розпізнавання.
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+    },
     onDecoded,
     function () { /* код не знайдено в кадрі — це нормальний стан кожного кадру */ }
   );
