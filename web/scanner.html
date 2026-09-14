@@ -458,7 +458,13 @@ async function restartCamera(cameraId) {
       qrbox: { width: 250, height: 250 },
       // Нативний розпізнавач штрихкодів браузера (де є) значно швидший і
       // точніший за чистий JS-декодер — саме він і сповільнював розпізнавання.
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+      // Safari (WebKit) цей API поки не реалізує взагалі — там завжди
+      // працює JS-декодер, і disableFlip нижче саме для цього випадку.
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      // Тильна камера ніколи не дає дзеркальної картинки — без потреби
+      // пробувати ще й перевернутий варіант на кожному кадрі (це вдвічі
+      // менше роботи для JS-декодера, коли BarcodeDetector недоступний).
+      disableFlip: true
     },
     onDecoded,
     function () { /* код не знайдено в кадрі — це нормальний стан кожного кадру */ }
