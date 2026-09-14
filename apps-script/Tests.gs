@@ -72,6 +72,43 @@ function testCheckinScenarios() {
   );
 }
 
+// Тест для batchCheckin — один пакетний запит на кілька кодів одразу
+// (той сценарій, що й "спершу сканувати офлайн, потім відправити все разом").
+function testBatchCheckin() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var secret = getHmacSecret();
+  var testGroup = 'ТЕСТ-01';
+  var testSession = 'тест-пакет ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+  setUpTestGroup(ss, testGroup);
+
+  var validPayload = buildSignedPayload(testGroup, '1', secret);
+  var forgedPayload = buildSignedPayload(testGroup, '2', secret).slice(0, -1) + 'X';
+  var unknownPayload = buildSignedPayload(testGroup, '99', secret);
+
+  var request = {
+    action: 'batchCheckin',
+    session: testSession,
+    payloads: [validPayload, forgedPayload, unknownPayload, validPayload] // останній — дублікат
+  };
+  var fakeEvent = { postData: { contents: JSON.stringify(request) } };
+  var response = JSON.parse(doPost(fakeEvent).getContent());
+
+  var expected = { ok: 1, forged: 1, unknown: 1, duplicate: 1 };
+  var mismatches = [];
+  ['ok', 'forged', 'unknown', 'duplicate'].forEach(function (key) {
+    if (response.summary[key] !== expected[key]) {
+      mismatches.push(key + ': очікувалось ' + expected[key] + ', отримано ' + response.summary[key]);
+    }
+  });
+
+  if (mismatches.length > 0) {
+    throw new Error('testBatchCheckin провалено:\n' + mismatches.join('\n'));
+  }
+
+  Logger.log('testBatchCheckin: усі 4 записи в пакеті отримали правильний статус. Підсумок: ' + JSON.stringify(response.summary));
+}
+
 function runScenario(title, request, expectedStatus) {
   var fakeEvent = { postData: { contents: JSON.stringify(request) } };
   var response = JSON.parse(doPost(fakeEvent).getContent());

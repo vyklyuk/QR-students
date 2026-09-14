@@ -16,6 +16,8 @@ function doPost(e) {
     switch (request.action) {
       case 'checkin':
         return jsonResponse(handleCheckin(request));
+      case 'batchCheckin':
+        return jsonResponse(handleBatchCheckin(request));
       case 'roster':
         return jsonResponse(handleRoster(request));
       case 'manual':
@@ -76,6 +78,61 @@ function handleCheckin(request) {
     group: parsed.group,
     presentCount: result.presentCount
   };
+}
+
+// action: "batchCheckin" — вхід {payloads: [рядок, ...], session}. Той самий
+// алгоритм, що й у checkin, для кожного коду по черзі, але за ОДНЕ звернення
+// до Apps Script (одне відкриття таблиці) замість окремого виклику на кожного
+// студента. Призначено для сценарію "спершу сканувати офлайн (напр. Команди
+// на iPhone накопичують коди без мережі), потім відправити все одним пакетом".
+function handleBatchCheckin(request) {
+  var secret = getHmacSecret();
+  var session = request.session;
+  var payloads = request.payloads || [];
+  var results = [];
+
+  payloads.forEach(function (payload) {
+    var parsed = parsePayload(payload);
+
+    if (!parsed) {
+      writeLog('?', '?', 'forged');
+      results.push({ payload: payload, status: 'forged', group: '', name: '' });
+      return;
+    }
+
+    if (!verifySignature(parsed, secret)) {
+      writeLog(parsed.group, parsed.number, 'forged');
+      results.push({ payload: payload, status: 'forged', group: parsed.group, name: '' });
+      return;
+    }
+
+    var student = findStudent(parsed.group, parsed.number);
+    if (!student) {
+      writeLog(parsed.group, parsed.number, 'unknown');
+      results.push({ payload: payload, status: 'unknown', group: parsed.group, name: '' });
+      return;
+    }
+
+    var result = markAttendance(parsed.group, student.name, session, '+');
+    var status = result.duplicate ? 'duplicate' : 'ok';
+    writeLog(parsed.group, parsed.number, status);
+    results.push({
+      payload: payload,
+      status: status,
+      group: parsed.group,
+      name: student.name,
+      presentCount: result.presentCount
+    });
+  });
+
+  var summary = { ok: 0, duplicate: 0, forged: 0, unknown: 0 };
+  results.forEach(function (r) {
+    if (summary[r.status] !== undefined) {
+      summary[r.status]++;
+    }
+  });
+
+  return { status: 'ok', results: results, summary: summary };
 }
 
 // action: "roster" — вхід {session}. Список студентів усіх груп, перелічених
