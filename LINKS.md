@@ -11,6 +11,7 @@
 | Генератор карток (роздрукувати нові картки) | https://vyklyuk.github.io/QR-students/generator.html |
 | Стартова сторінка з посиланнями на обидві | https://vyklyuk.github.io/QR-students/ |
 | Сама Google Таблиця (дані, звіти) | https://docs.google.com/spreadsheets/d/1zDfmwpkYDvbMF12KW2uNcQheIiKK5I_AIIPNTxV5RMM/edit?gid=628695362#gid=628695362 |
+| QR-код «СТОП» (сигнал завершення сканування для «Команди» на iPhone) | https://raw.githubusercontent.com/vyklyuk/QR-students/main/stop-qr.png |
 
 ## Технічне (для налагодження)
 
