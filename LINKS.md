@@ -8,6 +8,7 @@
 | Мета | Адреса |
 |------|--------|
 | Сканер відвідуваності (щодня на парі) | https://vyklyuk.github.io/QR-students/scanner.html |
+| Офлайн-сканування (пакетна відмітка після сканування без зв'язку) | https://vyklyuk.github.io/QR-students/batch.html |
 | Генератор карток (роздрукувати нові картки) | https://vyklyuk.github.io/QR-students/generator.html |
 | Стартова сторінка з посиланнями на обидві | https://vyklyuk.github.io/QR-students/ |
 | Сама Google Таблиця (дані, звіти) | https://docs.google.com/spreadsheets/d/1zDfmwpkYDvbMF12KW2uNcQheIiKK5I_AIIPNTxV5RMM/edit?gid=628695362#gid=628695362 |
